@@ -30,10 +30,114 @@ class UncertaintyLoss(torch.nn.Module, ABC):
     def from_name(cls, name: str) -> "UncertaintyLoss":
         if name == "gaussian_nll":
             return GaussianNLL()
+        elif name == "cov_gaussian_nll":
+            return CovGaussianNLL()
         elif name == "laplace_nll":
             return LaplaceNLL()
+        elif name =="cov_laplace_nll":
+            return CovLaplaceNLL()
         else:
             raise ValueError(f"Unknown loss function: {name}")
+
+
+class CovGaussianNLL(UncertaintyLoss):
+    num_distribution_params = None  # Adjust as needed
+
+    def __init__(self, eps_min: float = 1e-5):
+        """
+        Negative log-likelihood for a multivariate Gaussian distribution.
+
+        Args:
+            eps_min: Minimum value to add to the diagonal for numerical stability.
+        """
+        super().__init__()
+        self.eps_min = eps_min
+
+    def forward(
+        self, 
+        y_hat: torch.Tensor,  # Predicted mean (batch_size, d)
+        L_flat: torch.Tensor, # Predicted Cholesky factors (batch_size, d * (d + 1) / 2)
+        y: torch.Tensor,       # Target values (batch_size, d)
+        mask: torch.Tensor = None,
+        reduce_mean: bool = True,
+    ):
+        """
+        Computes the multivariate Gaussian negative log-likelihood.
+        
+        Args:
+            y_hat: Predicted mean vector
+            L_flat: Flattened lower-triangular Cholesky decomposition of the covariance matrix
+            y: Target vector
+        Returns:
+            Negative log-likelihood loss.
+        """
+        batch_size, d = y_hat.shape  # Number of samples, dimensionality
+
+        # Reconstruct lower-triangular matrix L from L_flat
+        L = torch.zeros(batch_size, d, d, device=y.device)
+        tril_indices = torch.tril_indices(row=d, col=d, offset=0)
+        L[:, tril_indices[0], tril_indices[1]] = L_flat
+
+        # Ensure L has a small positive diagonal for numerical stability
+        L[:, torch.arange(d), torch.arange(d)] += self.eps_min
+
+        # Compute covariance matrix: Sigma = L L^T
+        Sigma = L @ L.transpose(-1, -2)  # Ensure positive definiteness
+
+        # Compute (y - y_hat)
+        diff = (y - y_hat).unsqueeze(-1)  # Shape (batch_size, d, 1)
+
+        # Solve Lx = diff for x (i.e., compute Sigma^{-1} @ diff efficiently)
+        L_inv_diff = torch.linalg.solve_triangular(L, diff, upper=False)
+        mahalanobis_term = (L_inv_diff ** 2).sum(dim=1)  # Mahalanobis distance term
+
+        # Compute log determinant: log |Sigma| = 2 * sum(log(diag(L)))
+        log_det_Sigma = 2 * torch.sum(torch.log(torch.diagonal(L, dim1=-2, dim2=-1)), dim=-1)
+
+        # Compute final NLL loss
+        loss = 0.5 * (log_det_Sigma + mahalanobis_term.squeeze(-1) + d * torch.log(torch.tensor(2 * torch.pi, device=y.device)))
+
+        if mask is not None:
+            loss = loss * mask
+
+        if reduce_mean:
+            return torch.mean(loss)
+        return loss
+
+    def std(self, mu: torch.Tensor, L_flat: torch.Tensor):
+        """Compute the standard deviation (diagonal of covariance matrix)."""
+        batch_size, d = mu.shape
+        L = torch.zeros(batch_size, d, d, device=mu.device)
+        tril_indices = torch.tril_indices(row=d, col=d, offset=0)
+        L[:, tril_indices[0], tril_indices[1]] = L_flat
+        return torch.diagonal(L @ L.transpose(-1, -2), dim1=-2, dim2=-1) ** 0.5
+
+    def mode(self, mu: torch.Tensor, L_flat: torch.Tensor):
+        """Mode of a Gaussian distribution is its mean."""
+        return mu
+
+    def calculate_dist_param(self, std: torch.Tensor, *, log: bool = False):
+        """
+        Calculate the distribution parameter based on the provided standard deviation.
+        
+        Args:
+            std: The tensor containing the standard deviation values.
+            log: If set to True, return the natural logarithm of the calculated parameter.
+        
+        Returns:
+            A tensor with the calculated distribution parameter.
+        """
+        param = std ** 2
+        param = param.clone()
+
+        with torch.no_grad():
+            param.clamp_(min=self.eps_min)
+
+        if log:
+            param = torch.log(param)
+
+        return param
+
 
 
 class GaussianNLL(UncertaintyLoss):
