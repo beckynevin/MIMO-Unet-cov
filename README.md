@@ -1,3 +1,5 @@
+This repo is a fork of MIMO-Unet; I (Becky) am adding on some additional loss functions to work with covariances between pixels.
+
 <a target="_blank" href="https://colab.research.google.com/github/antonbaumann/MIMO-Unet/blob/main/MIMO_U_Net_NYUv2_depth.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
