@@ -1,9 +1,9 @@
 from argparse import ArgumentParser, Namespace
 import logging
 
-from sen12tp.datamodule import SEN12TPDataModuleV2
-from sen12tp.dataset import Patchsize
-import sen12tp.utils
+from sen12tp_cov.datamodule import SEN12TPDataModuleV2
+from sen12tp_cov.dataset import Patchsize
+import sen12tp_cov.utils
 
 from mimo.utils import dir_path
 
@@ -23,7 +23,7 @@ def get_datamodule(args: Namespace) -> SEN12TPDataModuleV2:
         stride=args.stride,
         model_inputs=args.input,
         model_targets=args.target,
-        transform=sen12tp.utils.min_max_transform,
+        transform=sen12tp_cov.utils.min_max_transform,
         num_workers=args.num_workers,
         pin_memory=True,
         shuffle_train=True,
