@@ -12,6 +12,9 @@ from mimo.models.mimo_unet import MimoUnetModel
 from mimo.tasks.sen12tp.sen12tp_datamodule import get_datamodule, add_datamodule_args
 from mimo.tasks.sen12tp.callbacks import OutputMonitor
 
+import torch
+torch.set_float32_matmul_precision('high')
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
